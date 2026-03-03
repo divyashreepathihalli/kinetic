@@ -350,12 +350,18 @@ class TestScaleToZeroNodePools(parameterized.TestCase):
     is_multi_host = getattr(accelerator, "num_nodes", 1) > 1
 
     call_kwargs = gcp_mock.container.NodePool.call_args.kwargs
-    self.assertEqual(call_kwargs.get("initial_node_count"), expected_max_count if is_multi_host else 0)
+    self.assertEqual(
+      call_kwargs.get("initial_node_count"),
+      expected_max_count if is_multi_host else 0,
+    )
 
     autoscaling_kwargs = (
       gcp_mock.container.NodePoolAutoscalingArgs.call_args.kwargs
     )
-    self.assertEqual(autoscaling_kwargs.get("min_node_count"), expected_max_count if is_multi_host else 0)
+    self.assertEqual(
+      autoscaling_kwargs.get("min_node_count"),
+      expected_max_count if is_multi_host else 0,
+    )
     self.assertEqual(
       autoscaling_kwargs.get("max_node_count"), expected_max_count
     )
