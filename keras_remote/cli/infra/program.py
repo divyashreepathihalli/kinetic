@@ -131,14 +131,6 @@ def create_program(config):
             resource_type="memory",
             maximum=64000,
           ),
-          gcp.container.ClusterClusterAutoscalingResourceLimitArgs(
-            resource_type="nvidia.com/gpu",
-            maximum=100,
-          ),
-          gcp.container.ClusterClusterAutoscalingResourceLimitArgs(
-            resource_type="google.com/tpu",
-            maximum=100,
-          ),
         ],
       ),
       opts=pulumi.ResourceOptions(depends_on=enabled_apis),

@@ -312,12 +312,6 @@ class TestClusterAutoscalingAndNAP(absltest.TestCase):
       gcp_mock.container.ClusterClusterAutoscalingResourceLimitArgs.assert_any_call(
         resource_type="memory", maximum=64000
       )
-      gcp_mock.container.ClusterClusterAutoscalingResourceLimitArgs.assert_any_call(
-        resource_type="nvidia.com/gpu", maximum=100
-      )
-      gcp_mock.container.ClusterClusterAutoscalingResourceLimitArgs.assert_any_call(
-        resource_type="google.com/tpu", maximum=100
-      )
 
 
 class TestScaleToZeroNodePools(parameterized.TestCase):
