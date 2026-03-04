@@ -419,7 +419,9 @@ def _check_node_pool_exists_cached(selector_items) -> bool:
             ["--cluster", cluster, "--location", location, "--project", project]
           )
     except Exception as e:
-      logging.warning("Could not determine cluster context from kubeconfig: %s", e)
+      logging.warning(
+        "Could not determine cluster context from kubeconfig: %s", e
+      )
 
     out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
     pools = json.loads(out)
