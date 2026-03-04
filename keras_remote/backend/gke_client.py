@@ -214,8 +214,9 @@ def validate_preflight(
     if not nodes.items:
       selector_str = ", ".join([f"{k}: {v}" for k, v in node_selector.items()])
       logging.info(
-        f"Preflight check: No currently running nodes match selector: {selector_str}. "
-        "Proceeding under the assumption that the cluster will auto-provision."
+        "Preflight check: No currently running nodes match selector: %s. "
+        "Proceeding under the assumption that the cluster will auto-provision with scale-to-zero enabled.",
+        selector_str,
       )
   except ApiException as e:
     # If we can't list nodes due to permissions, log a warning but proceed
@@ -400,7 +401,13 @@ def _print_pod_logs(core_v1, job_name, namespace):
 
 @functools.lru_cache(maxsize=16)
 def _check_node_pool_exists_cached(selector_items) -> bool:
-  """Use gcloud to verify that a GKE NodePool matches the pod node selector."""
+  """Use gcloud to verify that a GKE NodePool matches the pod node selector.
+
+  Note: This caches results for the process lifetime. If a user creates a new
+  node pool in another terminal (e.g. `keras-remote pool add`) during a long-running
+  session, this may return stale results. This is acceptable for our current
+  scale-to-zero model with ephemeral sessions.
+  """
   selector = dict(selector_items)
   try:
     cmd = ["gcloud", "container", "node-pools", "list", "--format", "json"]
@@ -433,17 +440,17 @@ def _check_node_pool_exists_cached(selector_items) -> bool:
       accelerators = config_dict.get("accelerators", [])
       if accelerators:
         accel_type = accelerators[0].get("acceleratorType", "")
-        pool_labels["cloud.google.com/gke-accelerator"] = accel_type
+        if accel_type.startswith("tpu-"):
+          pool_labels["cloud.google.com/gke-tpu-accelerator"] = accel_type
+        else:
+          pool_labels["cloud.google.com/gke-accelerator"] = accel_type
 
       # TPU mapping fallback
       machine_type = config_dict.get("machineType", "")
       if machine_type.startswith("ct"):
-        # We roughly map TPU presence for preflight
+        # We roughly map TPU topology presence for preflight
         pool_labels["cloud.google.com/gke-tpu-topology"] = selector.get(
           "cloud.google.com/gke-tpu-topology", ""
-        )
-        pool_labels["cloud.google.com/gke-tpu-accelerator"] = selector.get(
-          "cloud.google.com/gke-tpu-accelerator", ""
         )
 
       if all(pool_labels.get(k) == str(v) for k, v in selector.items()):
@@ -507,9 +514,12 @@ def _check_pod_scheduling(core_v1, job_name, namespace, logged_pending):
                   else "None"
                 )
                 logging.info(
-                  f"Pod {pod_name} is Pending: {msg.split('. ')[0]}.\n"
-                  f"  Selector: {selector_str}\n"
+                  "Pod %s is Pending: %s.\n"
+                  "  Selector: %s\n"
                   "  Waiting for GKE Cluster Autoscaler to provision a new node... (scale-to-zero)\n"
-                  "  Note: If this hangs indefinitely, ensure your GCP project has adequate quota."
+                  "  Note: If this hangs indefinitely, ensure your GCP project has adequate quota.",
+                  pod_name,
+                  msg.split(". ")[0],
+                  selector_str,
                 )
                 logged_pending.add(pod_name)
