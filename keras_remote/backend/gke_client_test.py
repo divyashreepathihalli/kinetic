@@ -99,7 +99,7 @@ class TestCreateJobSpec(absltest.TestCase):
     job = _create_job_spec(
       job_name="keras-remote-job-abc",
       container_uri="us-docker.pkg.dev/proj/repo/img:tag",
-      accel_config=self._make_gpu_config(),
+      accel_configs=[self._make_gpu_config()],
       job_id="job-abc",
       bucket_name="proj-keras-remote-jobs",
       namespace="default",
@@ -142,11 +142,13 @@ class TestCreateJobSpec(absltest.TestCase):
     self.assertEqual(job.spec.template.metadata.labels["app"], "keras-remote")
     self.assertEqual(job.spec.template.metadata.labels["job-id"], "job-abc")
 
-    # GPU-specific: node selector and tolerations
-    self.assertIn(
-      "cloud.google.com/gke-accelerator",
-      job.spec.template.spec.node_selector,
-    )
+    # GPU-specific: node affinity and tolerations
+    affinity = job.spec.template.spec.affinity
+    self.assertIsNotNone(affinity)
+    terms = affinity.node_affinity.required_during_scheduling_ignored_during_execution.node_selector_terms
+    self.assertLen(terms, 1)
+    self.assertEqual(terms[0].match_expressions[0].key, "cloud.google.com/gke-accelerator")
+    self.assertEqual(terms[0].match_expressions[0].values[0], "nvidia-l4")
     tolerations = job.spec.template.spec.tolerations
     self.assertLen(tolerations, 1)
     self.assertEqual(tolerations[0].key, "nvidia.com/gpu")
@@ -155,12 +157,12 @@ class TestCreateJobSpec(absltest.TestCase):
     job = _create_job_spec(
       job_name="cpu-job",
       container_uri="img",
-      accel_config=self._make_cpu_config(),
+      accel_configs=[self._make_cpu_config()],
       job_id="j",
       bucket_name="b",
       namespace="ns",
     )
-    self.assertIsNone(job.spec.template.spec.node_selector)
+    self.assertIsNone(job.spec.template.spec.affinity)
 
 
 class TestWaitForJob(absltest.TestCase):

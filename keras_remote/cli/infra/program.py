@@ -104,7 +104,7 @@ def create_program(config):
     cluster = gcp.container.Cluster(
       "keras-remote-cluster",
       name=cluster_name,
-      location=zone,
+      location=region,
       project=project_id,
       initial_node_count=1,
       remove_default_node_pool=False,
@@ -147,17 +147,18 @@ def create_program(config):
     for np in node_pools:
       accel = np.accelerator
       pool_name = np.name
+      pool_zone = np.zone
       if isinstance(accel, GpuConfig):
         pool = _create_gpu_node_pool(
-          cluster, accel, zone, project_id, pool_name
+          cluster, accel, pool_zone, project_id, pool_name
         )
       elif isinstance(accel, TpuConfig):
         pool = _create_tpu_node_pool(
-          cluster, accel, zone, project_id, pool_name
+          cluster, accel, pool_zone, project_id, pool_name
         )
       else:
         continue
-      pool_entries.append((accel, pool))
+      pool_entries.append((accel, pool, pool_zone))
 
     # 6. Stack exports
     # Exports that reference resource outputs (e.g. cluster.name,
@@ -179,21 +180,22 @@ def create_program(config):
       pulumi.export("accelerators", [])
     else:
       export_outputs = []
-      for accel, pool in pool_entries:
+      for accel, pool, p_zone in pool_entries:
         if isinstance(accel, GpuConfig):
           entry = pool.name.apply(
-            lambda pn, a=accel: {
+            lambda pn, a=accel, z=p_zone: {
               "type": "GPU",
               "name": a.name,
               "count": a.count,
               "machine_type": a.machine_type,
               "node_pool": pn,
               "node_count": 1,
+              "zone": z,
             }
           )
         else:  # TpuConfig
           entry = pool.name.apply(
-            lambda pn, a=accel: {
+            lambda pn, a=accel, z=p_zone: {
               "type": "TPU",
               "name": a.name,
               "chips": a.chips,
@@ -201,6 +203,7 @@ def create_program(config):
               "machine_type": a.machine_type,
               "node_pool": pn,
               "node_count": a.num_nodes,
+              "zone": z,
             }
           )
         export_outputs.append(entry)

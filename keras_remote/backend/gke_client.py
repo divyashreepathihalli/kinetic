@@ -42,14 +42,21 @@ def submit_k8s_job(
   _load_kube_config()
 
   # Parse accelerator configuration
-  accel_config = _parse_accelerator(accelerator)
+  if not accelerator:
+    accelerator = "cpu"
+  accel_configs = [
+      _parse_accelerator(a.strip()) 
+      for a in accelerator.split(",") if a.strip()
+  ]
+  if not accel_configs:
+      accel_configs = [_parse_accelerator("cpu")]
 
   # Create job specification
   job_name = f"keras-remote-{job_id}"
   job = _create_job_spec(
     job_name=job_name,
     container_uri=container_uri,
-    accel_config=accel_config,
+    accel_configs=accel_configs,
     job_id=job_id,
     bucket_name=bucket_name,
     namespace=namespace,
@@ -199,8 +206,17 @@ def validate_preflight(
       RuntimeError: If no nodes match the required accelerator selector.
   """
   _load_kube_config()
-  accel_config = _parse_accelerator(accelerator)
-  node_selector = accel_config.get("node_selector")
+  if not accelerator:
+    accelerator = "cpu"
+  accel_configs = [
+      _parse_accelerator(a.strip()) 
+      for a in accelerator.split(",") if a.strip()
+  ]
+  if not accel_configs:
+      accel_configs = [_parse_accelerator("cpu")]
+
+  # We only check the primary accelerator for preflight
+  node_selector = accel_configs[0].get("node_selector")
 
   if not node_selector:
     return  # CPU or no selector required
@@ -214,7 +230,7 @@ def validate_preflight(
     if not nodes.items:
       selector_str = ", ".join([f"{k}: {v}" for k, v in node_selector.items()])
       logging.info(
-        "Preflight check: No currently running nodes match selector: %s. "
+        "Preflight check: No currently running nodes match primary selector: %s. "
         "Proceeding under the assumption that the cluster will auto-provision with scale-to-zero enabled.",
         selector_str,
       )
@@ -293,14 +309,14 @@ def _load_kube_config():
 
 
 def _create_job_spec(
-  job_name, container_uri, accel_config, job_id, bucket_name, namespace
+  job_name, container_uri, accel_configs, job_id, bucket_name, namespace
 ):
   """Create Kubernetes Job specification.
 
   Args:
       job_name: Name for the K8s Job
       container_uri: Docker image URI
-      accel_config: Accelerator configuration from _parse_accelerator_for_gke
+      accel_configs: List of accelerator configurations
       job_id: Unique job identifier
       bucket_name: GCS bucket for artifacts
       namespace: Kubernetes namespace
@@ -308,11 +324,13 @@ def _create_job_spec(
   Returns:
       V1Job object ready for creation
   """
+  primary_accel = accel_configs[0]
+
   # Environment variables for remote_runner.py
   env_vars = [
     client.V1EnvVar(name="KERAS_BACKEND", value="jax"),
     client.V1EnvVar(
-      name="JAX_PLATFORMS", value=accel_config.get("jax_platform", "gpu")
+      name="JAX_PLATFORMS", value=primary_accel.get("jax_platform", "gpu")
     ),
     client.V1EnvVar(name="JOB_ID", value=job_id),
     client.V1EnvVar(name="GCS_BUCKET", value=bucket_name),
@@ -330,20 +348,26 @@ def _create_job_spec(
     ],
     env=env_vars,
     resources=client.V1ResourceRequirements(
-      limits=accel_config["resource_limits"],
-      requests=accel_config["resource_requests"],
+      limits=primary_accel["resource_limits"],
+      requests=primary_accel["resource_requests"],
     ),
   )
 
-  # Build tolerations
-  tolerations = [
-    client.V1Toleration(
-      key=t["key"],
-      operator=t["operator"],
-      effect=t["effect"],
-    )
-    for t in accel_config["tolerations"]
-  ]
+  # Build tolerations (union of all selected accelerators)
+  tolerations = []
+  seen_tol = set()
+  for c in accel_configs:
+    for t in c.get("tolerations", []):
+      key = f"{t['key']}-{t['operator']}-{t['effect']}"
+      if key not in seen_tol:
+        seen_tol.add(key)
+        tolerations.append(
+          client.V1Toleration(
+            key=t["key"],
+            operator=t["operator"],
+            effect=t["effect"],
+          )
+        )
 
   # Pod template specification
   pod_spec_kwargs = {
@@ -351,9 +375,29 @@ def _create_job_spec(
     "tolerations": tolerations if tolerations else None,
     "restart_policy": "Never",
   }
-  # Only set node_selector if non-empty (for GPU nodes)
-  if accel_config.get("node_selector"):
-    pod_spec_kwargs["node_selector"] = accel_config["node_selector"]
+
+  # Build node affinity terms
+  node_selector_terms = []
+  for c in accel_configs:
+    ns = c.get("node_selector")
+    if ns:
+      term = client.V1NodeSelectorTerm(
+        match_expressions=[
+          client.V1NodeSelectorRequirement(
+            key=k, operator="In", values=[v]
+          ) for k, v in ns.items()
+        ]
+      )
+      node_selector_terms.append(term)
+
+  if node_selector_terms:
+    pod_spec_kwargs["affinity"] = client.V1Affinity(
+      node_affinity=client.V1NodeAffinity(
+        required_during_scheduling_ignored_during_execution=client.V1NodeSelector(
+          node_selector_terms=node_selector_terms
+        )
+      )
+    )
 
   pod_template = client.V1PodTemplateSpec(
     metadata=client.V1ObjectMeta(
@@ -496,6 +540,13 @@ def _check_pod_scheduling(core_v1, job_name, namespace, logged_pending):
 
             if is_insufficient or is_mismatch:
               selector = pod.spec.node_selector or {}
+              if not selector and pod.spec.affinity and pod.spec.affinity.node_affinity:
+                  req = pod.spec.affinity.node_affinity.required_during_scheduling_ignored_during_execution
+                  if req and req.node_selector_terms:
+                      # Extract the first matching term to keep error messages simple
+                      for expr in req.node_selector_terms[0].match_expressions:
+                          if expr.values:
+                              selector[expr.key] = expr.values[0]
               if not _validate_node_pool_exists(selector):
                 selector_str = (
                   ", ".join([f"{k}: {v}" for k, v in selector.items()])

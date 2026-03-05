@@ -13,6 +13,7 @@ class NodePoolConfig:
 
   name: str  # GKE node pool name, e.g. "gpu-l4-a3f2"
   accelerator: Union[GpuConfig, TpuConfig]
+  zone: str = DEFAULT_ZONE
 
 
 @dataclass
@@ -20,6 +21,7 @@ class InfraConfig:
   """Configuration for infrastructure provisioning/teardown."""
 
   project: str
-  zone: str = DEFAULT_ZONE
+  zone: str = DEFAULT_ZONE  # Primary zone, or user-provided comma-separated list for fallbacks
+  region: str = ""          # Derived regional component
   cluster_name: str = DEFAULT_CLUSTER_NAME
   node_pools: list[NodePoolConfig] = field(default_factory=list)

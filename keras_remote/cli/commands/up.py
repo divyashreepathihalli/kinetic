@@ -69,21 +69,34 @@ def up(project, zone, accelerator, cluster_name, yes):
   zone = zone or DEFAULT_ZONE
   cluster_name = cluster_name or DEFAULT_CLUSTER_NAME
 
+  from keras_remote.constants import zone_to_region
+  zones = [z.strip() for z in zone.split(",")]
+  primary_zone = zones[0]
+  region = zone_to_region(primary_zone)
+
   # Resolve accelerator (interactive if not provided)
   if accelerator and accelerator.strip().lower() == "cpu":
-    accel_config = None
+    accel_configs = []
   elif accelerator:
-    try:
-      accel_config = accelerators.parse_accelerator(accelerator)
-    except ValueError as e:
-      raise click.BadParameter(str(e), param_hint="--accelerator") from e
+    accel_configs = []
+    for a in accelerator.split(","):
+      a = a.strip()
+      if a.lower() == "cpu":
+        continue
+      try:
+        cfg = accelerators.parse_accelerator(a)
+        if cfg:
+          accel_configs.append(cfg)
+      except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--accelerator") from e
   else:
-    accel_config = prompt_accelerator()
+    single_cfg = prompt_accelerator()
+    accel_configs = [single_cfg] if single_cfg else []
 
   # If a stack already exists, preserve its node pools as-is.
   # Users should manage pools via `keras-remote pool add/remove` after
   # initial setup.
-  config = InfraConfig(project=project, zone=zone, cluster_name=cluster_name)
+  config = InfraConfig(project=project, zone=primary_zone, region=region, cluster_name=cluster_name)
   existing_pools = []
   try:
     program = create_program(config)
@@ -99,10 +112,12 @@ def up(project, zone, accelerator, cluster_name, yes):
       f"\nFound {len(existing_pools)} existing node pool(s)."
       "\nUse 'keras-remote pool add/remove/list' to manage node pools.\n"
     )
-  elif accel_config is not None:
-    config.node_pools.append(
-      NodePoolConfig(generate_pool_name(accel_config), accel_config)
-    )
+  elif accel_configs:
+    for z in zones:
+      for ac in accel_configs:
+        config.node_pools.append(
+          NodePoolConfig(generate_pool_name(ac), ac, zone=z)
+        )
 
   # Show summary and confirm
   config_summary(config)
