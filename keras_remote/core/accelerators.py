@@ -190,6 +190,14 @@ _PREFERRED_GPUS = [
 _PREFERRED_TPUS = ["v6e", "v5p", "v5litepod", "v4", "v3", "v2"]
 
 
+def _resolve_gpu_alias(name: str) -> str:
+  return _GPU_ALIASES.get(name, name)
+
+
+def _resolve_tpu_alias(name: str) -> str:
+  return _TPU_ALIASES.get(name, name)
+
+
 def parse_accelerator(accel_str: str) -> Accelerator:
   """Parse an accelerator string into a fully resolved config.
 
@@ -213,9 +221,10 @@ def parse_accelerator(accel_str: str) -> Accelerator:
 
   if s.startswith("gpu-") and s[4:].isdigit():
     count = int(s[4:])
-    if count in GPUS[DEFAULT_GPU].counts:
-      return make_gpu(DEFAULT_GPU, count)
-    for gpu_name in _PREFERRED_GPUS:
+    search_order = [DEFAULT_GPU] + [
+      g for g in _PREFERRED_GPUS if g != DEFAULT_GPU
+    ]
+    for gpu_name in search_order:
       if gpu_name in GPUS and count in GPUS[gpu_name].counts:
         return make_gpu(gpu_name, count)
     valid_counts = sorted(set(c for spec in GPUS.values() for c in spec.counts))
@@ -225,9 +234,10 @@ def parse_accelerator(accel_str: str) -> Accelerator:
 
   if s.startswith("tpu-") and s[4:].isdigit():
     chips = int(s[4:])
-    if chips in TPUS[DEFAULT_TPU].topologies:
-      return make_tpu(DEFAULT_TPU, chips)
-    for tpu_name in _PREFERRED_TPUS:
+    search_order = [DEFAULT_TPU] + [
+      t for t in _PREFERRED_TPUS if t != DEFAULT_TPU
+    ]
+    for tpu_name in search_order:
       if tpu_name in TPUS and chips in TPUS[tpu_name].topologies:
         return make_tpu(tpu_name, chips)
     valid_chips = sorted(
@@ -238,35 +248,26 @@ def parse_accelerator(accel_str: str) -> Accelerator:
     )
 
   # Direct GPU name: "l4", "a100-80gb"
-  if s in GPUS:
-    return make_gpu(s, 1)
-
-  # GPU alias: "nvidia-l4"
-  if s in _GPU_ALIASES:
-    return make_gpu(_GPU_ALIASES[s], 1)
+  name = _resolve_gpu_alias(s)
+  if name in GPUS:
+    return make_gpu(name, 1)
 
   # Multi-GPU: "a100x4", "l4x2"
   m = _MULTI_GPU_RE.match(s)
   if m:
-    name = m.group(1)
+    name = _resolve_gpu_alias(m.group(1))
     if name in GPUS:
       return make_gpu(name, int(m.group(2)))
-    if name in _GPU_ALIASES:
-      return make_gpu(_GPU_ALIASES[name], int(m.group(2)))
 
   # Direct TPU name (bare): "v5litepod" → default chips
-  if s in TPUS:
-    return make_tpu(s, TPUS[s].default_chips)
-  if s in _TPU_ALIASES:
-    name = _TPU_ALIASES[s]
+  name = _resolve_tpu_alias(s)
+  if name in TPUS:
     return make_tpu(name, TPUS[name].default_chips)
 
   # TPU with topology string: "v5litepod-2x2", "v5p-2x2x2"
   m = _TPU_TOPO_RE.match(s)
   if m:
-    name = m.group(1)
-    if name in _TPU_ALIASES:
-      name = _TPU_ALIASES[name]
+    name = _resolve_tpu_alias(m.group(1))
     if name in TPUS:
       topo_str = m.group(2)
       for chips, topo_spec in TPUS[name].topologies.items():
@@ -281,9 +282,7 @@ def parse_accelerator(accel_str: str) -> Accelerator:
   # TPU with chip count: "v3-8", "v5litepod-4"
   m = _TPU_CHIPS_RE.match(s)
   if m:
-    name = m.group(1)
-    if name in _TPU_ALIASES:
-      name = _TPU_ALIASES[name]
+    name = _resolve_tpu_alias(m.group(1))
     if name in TPUS:
       return make_tpu(name, int(m.group(2)))
 
