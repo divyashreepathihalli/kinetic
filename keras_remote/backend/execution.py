@@ -18,7 +18,9 @@ from google.api_core import exceptions as google_exceptions
 from keras_remote.backend import gke_client, pathways_client
 from keras_remote.constants import get_default_zone, zone_to_region
 from keras_remote.credentials import ensure_credentials
+from keras_remote.data import _make_data_ref
 from keras_remote.infra import container_builder
+from keras_remote.infra.infra import get_default_project
 from keras_remote.utils import packager, storage
 
 
@@ -46,6 +48,9 @@ class JobContext:
   region: str = field(init=False)
   display_name: str = field(init=False)
 
+  # Data volumes {mount_path: Data}
+  volumes: Optional[dict] = None
+
   # Artifact paths (set during prepare phase)
   payload_path: Optional[str] = None
   context_path: Optional[str] = None
@@ -68,14 +73,13 @@ class JobContext:
     zone: Optional[str],
     project: Optional[str],
     env_vars: dict,
+    volumes: Optional[dict] = None,
   ) -> "JobContext":
     """Factory method with default resolution for zone/project."""
     if not zone:
       zone = get_default_zone()
     if not project:
-      project = os.environ.get("KERAS_REMOTE_PROJECT") or os.environ.get(
-        "GOOGLE_CLOUD_PROJECT"
-      )
+      project = get_default_project()
       if not project:
         raise ValueError(
           "project must be specified or set KERAS_REMOTE_PROJECT"
@@ -91,13 +95,14 @@ class JobContext:
       container_image=container_image,
       zone=zone,
       project=project,
+      volumes=volumes,
     )
 
 
 class BaseK8sBackend:
   """Base class for Kubernetes-based backends."""
 
-  def __init__(self, cluster: Optional[str] = None, namespace: str = "default"):
+  def __init__(self, cluster: str, namespace: str = "default"):
     self.cluster = cluster
     self.namespace = namespace
 
@@ -203,6 +208,14 @@ def _find_requirements(start_dir: str) -> Optional[str]:
   return None
 
 
+def _maybe_exclude(data_path, caller_path, exclude_paths):
+  """Add data_path to exclude_paths if it's inside the caller directory."""
+  data_abs = os.path.normpath(data_path)
+  caller_abs = os.path.normpath(caller_path)
+  if data_abs.startswith(caller_abs + os.sep) or data_abs == caller_abs:
+    exclude_paths.add(data_abs)
+
+
 def _prepare_artifacts(
   ctx: JobContext, tmpdir: str, caller_frame_depth: int = 3
 ) -> None:
@@ -212,21 +225,58 @@ def _prepare_artifacts(
   # Get caller directory
   frame = inspect.stack()[caller_frame_depth]
   module = inspect.getmodule(frame[0])
-  if module:
+  caller_path: str
+  if module and module.__file__:
     caller_path = os.path.dirname(os.path.abspath(module.__file__))
   else:
     caller_path = os.getcwd()
 
-  # Serialize function + args
+  # Process Data objects
+  exclude_paths: set[str] = set()
+  ref_map = {}  # id(Data) -> ref dict (for arg replacement)
+  volume_refs = []  # list of ref dicts (for volumes)
+
+  # Process volumes
+  if ctx.volumes:
+    for mount_path, data_obj in ctx.volumes.items():
+      gcs_uri = storage.upload_data(ctx.bucket_name, data_obj, ctx.project)
+      volume_refs.append(
+        _make_data_ref(gcs_uri, data_obj.is_dir, mount_path=mount_path)
+      )
+      if not data_obj.is_gcs:
+        _maybe_exclude(data_obj.path, caller_path, exclude_paths)
+
+  # Process Data in function args
+  data_refs = packager.extract_data_refs(ctx.args, ctx.kwargs)
+  for data_obj, _position in data_refs:
+    gcs_uri = storage.upload_data(ctx.bucket_name, data_obj, ctx.project)
+    ref_map[id(data_obj)] = _make_data_ref(gcs_uri, data_obj.is_dir)
+    if not data_obj.is_gcs:
+      _maybe_exclude(data_obj.path, caller_path, exclude_paths)
+
+  # Replace Data with refs in args/kwargs
+  if ref_map:
+    ctx.args, ctx.kwargs = packager.replace_data_with_refs(
+      ctx.args, ctx.kwargs, ref_map
+    )
+
+  # Serialize function + args (with volume refs)
   ctx.payload_path = os.path.join(tmpdir, "payload.pkl")
   packager.save_payload(
-    ctx.func, ctx.args, ctx.kwargs, ctx.env_vars, ctx.payload_path
+    ctx.func,
+    ctx.args,
+    ctx.kwargs,
+    ctx.env_vars,
+    ctx.payload_path,
+    volumes=volume_refs or None,
   )
   logging.info("Payload serialized to %s", ctx.payload_path)
 
-  # Zip working directory
+  # Zip working directory (excluding Data paths)
   ctx.context_path = os.path.join(tmpdir, "context.zip")
-  packager.zip_working_dir(caller_path, ctx.context_path)
+  packager.zip_working_dir(
+    caller_path, ctx.context_path, exclude_paths=exclude_paths
+  )
   logging.info("Context packaged to %s", ctx.context_path)
 
   # Find requirements.txt
@@ -258,6 +308,8 @@ def _build_container(ctx: JobContext) -> None:
 
 def _upload_artifacts(ctx: JobContext) -> None:
   """Phase 3: Upload artifacts to Cloud Storage."""
+  if ctx.payload_path is None or ctx.context_path is None:
+    raise ValueError("payload_path and context_path must be set before upload")
   logging.info("Uploading artifacts to Cloud Storage (job: %s)...", ctx.job_id)
   storage.upload_artifacts(
     bucket_name=ctx.bucket_name,
