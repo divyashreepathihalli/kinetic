@@ -221,9 +221,7 @@ def parse_accelerator(accel_str: str) -> Accelerator:
 
   if s.startswith("gpu-") and s[4:].isdigit():
     count = int(s[4:])
-    search_order = [DEFAULT_GPU] + [
-      g for g in _PREFERRED_GPUS if g != DEFAULT_GPU
-    ]
+    search_order = _PREFERRED_GPUS
     for gpu_name in search_order:
       if gpu_name in GPUS and count in GPUS[gpu_name].counts:
         return make_gpu(gpu_name, count)
@@ -234,9 +232,7 @@ def parse_accelerator(accel_str: str) -> Accelerator:
 
   if s.startswith("tpu-") and s[4:].isdigit():
     chips = int(s[4:])
-    search_order = [DEFAULT_TPU] + [
-      t for t in _PREFERRED_TPUS if t != DEFAULT_TPU
-    ]
+    search_order = _PREFERRED_TPUS
     for tpu_name in search_order:
       if tpu_name in TPUS and chips in TPUS[tpu_name].topologies:
         return make_tpu(tpu_name, chips)

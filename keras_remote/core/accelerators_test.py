@@ -180,17 +180,17 @@ class TestParseGenericAliases(absltest.TestCase):
   def test_gpu_with_count(self):
     result = parse_accelerator("gpu-4")
     self.assertIsInstance(result, GpuConfig)
-    self.assertEqual(result.name, "l4")
+    self.assertEqual(result.name, "h100")
     self.assertEqual(result.count, 4)
 
   def test_tpu_with_count(self):
     result = parse_accelerator("tpu-8")
     self.assertIsInstance(result, TpuConfig)
-    self.assertEqual(result.name, "v5litepod")
+    self.assertEqual(result.name, "v6e")
     self.assertEqual(result.chips, 8)
 
   def test_gpu_with_dynamic_count(self):
-    # l4 supports up to 8 now. 16 should fall back to a100.
+    # h100 supports up to 8. 16 should fall back to a100.
     result = parse_accelerator("gpu-16")
     self.assertIsInstance(result, GpuConfig)
     self.assertIn(result.name, ["a100", "a100-80gb"])
