@@ -232,7 +232,7 @@ def _create_gpu_node_pool(cluster, gpu: GpuConfig, zone, project_id, pool_name):
       guest_accelerators=[
         gcp.container.NodePoolNodeConfigGuestAcceleratorArgs(
           type=gpu.gke_label,
-          count=1,
+          count=gpu.count,
         ),
       ],
       labels={RESOURCE_NAME_PREFIX: "true"},
