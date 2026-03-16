@@ -137,6 +137,7 @@ def wait_for_job(job_id, namespace="default", timeout=3600, poll_interval=10):
   # The leader pod is suffixed with '-0' by LWS
   leader_pod_name = f"{job_name}-0"
 
+  logged_pending = set()
   with LogStreamer(core_v1, namespace) as streamer:
     while True:
       elapsed = time.time() - start_time
@@ -160,7 +161,7 @@ def wait_for_job(job_id, namespace="default", timeout=3600, poll_interval=10):
           raise RuntimeError(f"Pathways job {job_name} failed")
 
         elif pod.status.phase == "Pending":
-          _check_pod_scheduling(core_v1, job_name, namespace)
+          _check_pod_scheduling(core_v1, job_name, namespace, logged_pending)
           logging.debug("Pod is Pending...")
 
         elif pod.status.phase == "Running":
