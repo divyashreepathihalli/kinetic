@@ -34,8 +34,14 @@ from keras_remote.core.accelerators import GpuConfig, generate_pool_name
   help="Accelerator spec: cpu, t4, l4, a100, a100-80gb, h100, "
   "v5litepod, v5p, v6e, v3",
 )
+@click.option(
+  "--min-nodes",
+  default=0,
+  type=int,
+  help="Minimum node count for accelerator node pools (default: 0, scale-to-zero)",
+)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def up(project, zone, accelerator, cluster_name, yes):
+def up(project, zone, accelerator, cluster_name, min_nodes, yes):
   """Provision GCP infrastructure for keras-remote."""
   banner("keras-remote Setup")
 
@@ -79,7 +85,9 @@ def up(project, zone, accelerator, cluster_name, yes):
     )
   elif accel_config is not None:
     config.node_pools.append(
-      NodePoolConfig(generate_pool_name(accel_config), accel_config)
+      NodePoolConfig(
+        generate_pool_name(accel_config), accel_config, min_nodes=min_nodes
+      )
     )
 
   # Show summary and confirm

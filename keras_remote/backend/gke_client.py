@@ -532,7 +532,7 @@ def _check_pod_scheduling(core_v1, job_name, namespace, logged_pending):
                 logging.info(
                   "Pod %s is Pending: %s.\n"
                   "  Selector: %s\n"
-                  "  Waiting for GKE Cluster Autoscaler to provision a new node... (scale-to-zero)\n"
+                  "  Waiting for nodes to become available (this may take a few minutes for new pools or scale-up)\n"
                   "  Note: If this hangs indefinitely, ensure your GCP project has adequate quota.",
                   pod_name,
                   msg.split(". ")[0],

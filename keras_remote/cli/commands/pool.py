@@ -28,8 +28,14 @@ def pool():
   help="Accelerator spec: t4, l4, a100, a100-80gb, h100, "
   "v5litepod, v5p, v6e, v3 (with optional count/topology)",
 )
+@click.option(
+  "--min-nodes",
+  default=0,
+  type=int,
+  help="Minimum node count for the accelerator node pool (default: 0)",
+)
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def pool_add(project, zone, cluster_name, accelerator, yes):
+def pool_add(project, zone, cluster_name, accelerator, min_nodes, yes):
   """Add an accelerator node pool to the cluster."""
   banner("keras-remote Pool Add")
 
@@ -46,7 +52,7 @@ def pool_add(project, zone, cluster_name, accelerator, yes):
     )
 
   new_pool_name = generate_pool_name(accel_config)
-  new_pool = NodePoolConfig(new_pool_name, accel_config)
+  new_pool = NodePoolConfig(new_pool_name, accel_config, min_nodes=min_nodes)
 
   state = load_state(project, zone, cluster_name)
   all_pools = state.node_pools + [new_pool]

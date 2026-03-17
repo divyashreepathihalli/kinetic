@@ -149,15 +149,15 @@ def create_program(config):
       pool_name = np.name
       if isinstance(accel, GpuConfig):
         pool = _create_gpu_node_pool(
-          cluster, accel, zone, project_id, pool_name
+          cluster, accel, zone, project_id, pool_name, min_nodes=np.min_nodes
         )
       elif isinstance(accel, TpuConfig):
         pool = _create_tpu_node_pool(
-          cluster, accel, zone, project_id, pool_name
+          cluster, accel, zone, project_id, pool_name, min_nodes=np.min_nodes
         )
       else:
         continue
-      pool_entries.append((accel, pool))
+      pool_entries.append((accel, pool, np.min_nodes))
 
     # 6. Stack exports
     # Exports that reference resource outputs (e.g. cluster.name,
@@ -179,21 +179,22 @@ def create_program(config):
       pulumi.export("accelerators", [])
     else:
       export_outputs = []
-      for accel, pool in pool_entries:
+      for accel, pool, min_nodes in pool_entries:
         if isinstance(accel, GpuConfig):
           entry = pool.name.apply(
-            lambda pn, a=accel: {
+            lambda pn, a=accel, mn=min_nodes: {
               "type": "GPU",
               "name": a.name,
               "count": a.count,
               "machine_type": a.machine_type,
               "node_pool": pn,
               "node_count": 1,
+              "min_nodes": mn,
             }
           )
         else:  # TpuConfig
           entry = pool.name.apply(
-            lambda pn, a=accel: {
+            lambda pn, a=accel, mn=min_nodes: {
               "type": "TPU",
               "name": a.name,
               "chips": a.chips,
@@ -201,6 +202,7 @@ def create_program(config):
               "machine_type": a.machine_type,
               "node_pool": pn,
               "node_count": a.num_nodes,
+              "min_nodes": mn,
             }
           )
         export_outputs.append(entry)
@@ -209,7 +211,9 @@ def create_program(config):
   return pulumi_program
 
 
-def _create_gpu_node_pool(cluster, gpu: GpuConfig, zone, project_id, pool_name):
+def _create_gpu_node_pool(
+  cluster, gpu: GpuConfig, zone, project_id, pool_name, min_nodes=0
+):
   """Create a GPU-accelerated GKE node pool."""
   return gcp.container.NodePool(
     pool_name,
@@ -217,10 +221,10 @@ def _create_gpu_node_pool(cluster, gpu: GpuConfig, zone, project_id, pool_name):
     cluster=cluster.name,
     location=zone,
     project=project_id,
-    initial_node_count=0,
+    initial_node_count=min_nodes,
     autoscaling=gcp.container.NodePoolAutoscalingArgs(
-      min_node_count=0,
-      max_node_count=10,
+      min_node_count=min_nodes,
+      max_node_count=max(min_nodes, 10),
     ),
     management=gcp.container.NodePoolManagementArgs(
       auto_repair=True,
@@ -241,13 +245,13 @@ def _create_gpu_node_pool(cluster, gpu: GpuConfig, zone, project_id, pool_name):
   )
 
 
-def _create_tpu_node_pool(cluster, tpu: TpuConfig, zone, project_id, pool_name):
+def _create_tpu_node_pool(
+  cluster, tpu: TpuConfig, zone, project_id, pool_name, min_nodes=0
+):
   """Create a TPU GKE node pool."""
   # Single-host TPU slices (1 node) must not specify placement_policy;
   # multi-host slices require COMPACT placement with an explicit topology.
   is_multi_host = tpu.num_nodes > 1
-  # Autoscaling is enabled, so we need to set the min_node_count to 0.
-  min_nodes = 0
 
   placement = (
     gcp.container.NodePoolPlacementPolicyArgs(
@@ -266,7 +270,7 @@ def _create_tpu_node_pool(cluster, tpu: TpuConfig, zone, project_id, pool_name):
     initial_node_count=min_nodes,
     autoscaling=gcp.container.NodePoolAutoscalingArgs(
       min_node_count=min_nodes,
-      max_node_count=tpu.num_nodes,
+      max_node_count=max(min_nodes, tpu.num_nodes),
     ),
     management=gcp.container.NodePoolManagementArgs(
       auto_repair=True,

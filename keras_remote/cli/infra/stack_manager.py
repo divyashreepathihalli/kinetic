@@ -103,4 +103,8 @@ def _export_to_node_pool(entry: dict) -> NodePoolConfig:
     accelerator = accelerators.make_tpu(entry["name"], entry["chips"])
   else:
     raise ValueError(f"Unknown accelerator type in node pool export: {entry}")
-  return NodePoolConfig(name=pool_name, accelerator=accelerator)
+  return NodePoolConfig(
+    name=pool_name,
+    accelerator=accelerator,
+    min_nodes=entry.get("min_nodes", 0),
+  )
