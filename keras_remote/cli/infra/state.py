@@ -113,13 +113,22 @@ def apply_update(config):
   program = create_program(config)
   stack = get_stack(program, config)
 
+  try:
+    console.print("\n[cyan]Running Preview:[/cyan]")
+    prev = stack.preview()
+    console.print(prev.change_summary)
+  except Exception as e:
+    console.print(f"[red]Preview error: {e}[/red]")
+
   ok = True
+  error_msg = None
   with LiveOutputPanel("Updating infrastructure", transient=True) as panel:
     try:
       result = stack.up(on_output=panel.on_output)
-    except auto.errors.CommandError:
+    except auto.errors.CommandError as e:
       panel.mark_error()
       ok = False
+      error_msg = getattr(e, "stderr", str(e))
 
   console.print()
   if ok:
@@ -128,6 +137,8 @@ def apply_update(config):
     )
     return True
   warning("Infrastructure update encountered an issue.")
+  if error_msg:
+    console.print(f"[red]{error_msg}[/red]")
   return False
 
 

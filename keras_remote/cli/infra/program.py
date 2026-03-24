@@ -140,7 +140,10 @@ def create_program(config):
           ),
         ],
       ),
-      opts=pulumi.ResourceOptions(depends_on=enabled_apis),
+      opts=pulumi.ResourceOptions(
+        depends_on=enabled_apis,
+        ignore_changes=["nodeConfig", "clusterAutoscaling", "location"]
+      ),
     )
 
     # 5. Accelerator node pools (zero or more)
@@ -243,6 +246,9 @@ def _create_gpu_node_pool(
       labels={RESOURCE_NAME_PREFIX: "true"},
       max_run_duration=f"{NODE_MAX_RUN_DURATION_SECONDS}s",  # 24 hours
     ),
+    opts=pulumi.ResourceOptions(
+      custom_timeouts=pulumi.CustomTimeouts(create="30m", update="30m")
+    ),
   )
 
 
@@ -289,4 +295,8 @@ def _create_tpu_node_pool(
       max_run_duration=f"{NODE_MAX_RUN_DURATION_SECONDS}s",  # 24 hours
     ),
     placement_policy=placement,
+    opts=pulumi.ResourceOptions(
+      custom_timeouts=pulumi.CustomTimeouts(create="30m", update="30m", delete="30m"),
+      ignore_changes=["placementPolicy"] if not is_multi_host else None,
+    ),
   )

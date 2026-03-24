@@ -7,6 +7,18 @@ DEFAULT_ZONE = "us-central1-a"
 DEFAULT_CLUSTER_NAME = "keras-remote-cluster"
 DEFAULT_REGION = DEFAULT_ZONE.rsplit("-", 1)[0]  # "us-central1"
 
+CANDIDATE_ZONES = [
+  "us-central1-a",
+  "us-central1-b",
+  "us-east1-c",
+  "us-east5-b",      
+  "us-east5-c",
+  "us-west1-b",
+  "us-west4-a",
+  "europe-west4-a",
+  "asia-southeast1-a",
+]
+
 
 def get_default_zone():
   """Return zone from KERAS_REMOTE_ZONE env var, or DEFAULT_ZONE."""

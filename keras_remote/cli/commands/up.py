@@ -5,13 +5,13 @@ import subprocess
 import click
 
 from keras_remote.cli.config import InfraConfig, NodePoolConfig
-from keras_remote.cli.constants import DEFAULT_CLUSTER_NAME, DEFAULT_ZONE
+from keras_remote.cli.constants import DEFAULT_CLUSTER_NAME
 from keras_remote.cli.infra.post_deploy import (
   configure_kubectl,
   install_gpu_drivers,
   install_lws,
 )
-from keras_remote.cli.infra.state import apply_update, load_state
+from keras_remote.cli.infra.state import apply_update, apply_destroy, load_state
 from keras_remote.cli.options import common_options
 from keras_remote.cli.output import (
   LiveOutputPanel,
@@ -24,6 +24,8 @@ from keras_remote.cli.prerequisites_check import check_all
 from keras_remote.cli.prompts import prompt_accelerator, resolve_project
 from keras_remote.core import accelerators
 from keras_remote.core.accelerators import GpuConfig, generate_pool_name
+from keras_remote.cli.regions import get_sorted_zones
+from keras_remote.cli.downgrade import get_fallback_configs
 
 
 @click.command()
@@ -50,7 +52,6 @@ def up(project, zone, accelerator, cluster_name, min_nodes, yes):
 
   # Resolve configuration
   project = project or resolve_project()
-  zone = zone or DEFAULT_ZONE
   cluster_name = cluster_name or DEFAULT_CLUSTER_NAME
 
   # Resolve accelerator (interactive if not provided)
@@ -64,40 +65,90 @@ def up(project, zone, accelerator, cluster_name, min_nodes, yes):
   else:
     accel_config = prompt_accelerator()
 
-  # If a stack already exists, preserve its node pools as-is.
-  # Users should manage pools via `keras-remote pool add/remove` after
-  # initial setup.
-  state = load_state(
+  zones = get_sorted_zones(zone)
+  first_z = zones[0] if zones else "us-central1-a"
+
+  # If a stack already exists in the first sorted zone, preserve its node pools.
+  first_state = load_state(
     project,
-    zone,
+    first_z,
     cluster_name,
     allow_missing=True,
     check_prerequisites=False,
   )
 
-  config = InfraConfig(project=project, zone=zone, cluster_name=cluster_name)
-
-  if state.node_pools:
-    config.node_pools = list(state.node_pools)
+  first_config = InfraConfig(project=project, zone=first_z, cluster_name=cluster_name)
+  if first_state.node_pools:
+    first_config.node_pools = list(first_state.node_pools)
     console.print(
-      f"\nFound {len(state.node_pools)} existing node pool(s)."
+      f"\nFound {len(first_state.node_pools)} existing node pool(s)."
       "\nUse 'keras-remote pool add/remove/list' to manage node pools.\n"
     )
   elif accel_config is not None:
-    config.node_pools.append(
+    first_config.node_pools.append(
       NodePoolConfig(
         generate_pool_name(accel_config), accel_config, min_nodes=min_nodes
       )
     )
 
-  # Show summary and confirm
-  config_summary(config)
+  # Show summary and confirm based on the first candidate setup
+  config_summary(first_config)
   if not yes:
     click.confirm("\nProceed with setup?", abort=True)
 
   console.print()
 
-  pulumi_ok = apply_update(config)
+  current_accel = accel_config
+  fallback_iterator = get_fallback_configs(accel_config)
+
+  pulumi_ok = False
+  successful_zone = None
+  config = None
+
+  while True:
+    for z in zones:
+      console.print(f"\n[bold]Attempting setup in zone {z}...[/bold]")
+      state = load_state(project, z, cluster_name, allow_missing=True, check_prerequisites=False)
+      config = InfraConfig(project=project, zone=z, cluster_name=cluster_name)
+      if state.node_pools:
+        config.node_pools = list(state.node_pools)
+      elif current_accel is not None:
+        # clamp min_nodes to 1 if we're hunting for capacity to ensure it is actually available
+        test_min_nodes = max(1, min_nodes)
+        config.node_pools.append(
+          NodePoolConfig(generate_pool_name(current_accel), current_accel, min_nodes=test_min_nodes)
+        )
+
+      pulumi_ok = apply_update(config)
+      if pulumi_ok:
+        successful_zone = z
+        break
+      else:
+        # cleanup failed attempt
+        warning(f"Provisioning failed in {z}. Cleaning up...")
+        if not state.node_pools: 
+           # only destroy if cluster didn't exist prior to us trying
+           apply_destroy(config)
+
+    if pulumi_ok:
+      if current_accel != accel_config:
+        # It was a downgrade
+        if not click.confirm(f"\nRequested hardware was unavailable. Successfully secured {current_accel.name} in {successful_zone}. Keep this hardware?"):
+          apply_destroy(config)
+          raise click.ClickException("Setup aborted by user.")
+      
+      zone = successful_zone
+      break
+
+    # try fallback
+    try:
+      current_accel = next(fallback_iterator)
+    except StopIteration:
+      raise click.ClickException("All hardware limits exhausted across candidate zones.")
+
+    console.print(f"\n[bold yellow]Hardware severely constrained. Searching for fallback: {current_accel.name}[/bold yellow]")
+
+
   pulumi_failed = not pulumi_ok
 
   if pulumi_failed:
@@ -115,7 +166,7 @@ def up(project, zone, accelerator, cluster_name, min_nodes, yes):
     ),
     ("LWS CRD installation", install_lws),
   ]
-  if any(isinstance(np.accelerator, GpuConfig) for np in config.node_pools):
+  if config and any(isinstance(np.accelerator, GpuConfig) for np in config.node_pools):
     steps.append(("GPU driver installation", install_gpu_drivers))
 
   failures = []

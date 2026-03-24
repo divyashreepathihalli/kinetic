@@ -13,6 +13,8 @@ from keras_remote.cli.output import (
 )
 from keras_remote.core import accelerators
 from keras_remote.core.accelerators import generate_pool_name
+from keras_remote.cli.regions import get_sorted_zones
+from keras_remote.cli.downgrade import get_fallback_configs
 
 
 @click.group()
@@ -51,36 +53,73 @@ def pool_add(project, zone, cluster_name, accelerator, min_nodes, yes):
       param_hint="--accelerator",
     )
 
-  new_pool_name = generate_pool_name(accel_config)
-  new_pool = NodePoolConfig(new_pool_name, accel_config, min_nodes=min_nodes)
+  from keras_remote.cli.prompts import resolve_project
+  project = project or resolve_project()
 
-  state = load_state(project, zone, cluster_name)
-  all_pools = state.node_pools + [new_pool]
-
-  console.print(f"\nAdding pool [bold]{new_pool_name}[/bold] ({accelerator})")
-  console.print(f"Total pools after add: {len(all_pools)}\n")
+  zones = get_sorted_zones(zone)
+  current_accel = accel_config
+  fallback_iterator = get_fallback_configs(accel_config)
 
   if not yes:
+    console.print(f"\nAdding pool for requested accelerator: {accelerator}")
     click.confirm("Proceed?", abort=True)
 
-  config = InfraConfig(
-    project=state.project,
-    zone=state.zone,
-    cluster_name=state.cluster_name,
-    node_pools=all_pools,
-  )
-  update_succeeded = apply_update(config)
+  update_succeeded = False
+  successful_zone = None
+
+  while True:
+    for z in zones:
+      state = load_state(project, z, cluster_name)
+      if not state.stack:
+          # don't try to add a pool to a zone without a stack
+          continue
+          
+      console.print(f"\n[bold]Attempting pool setup in zone {z}...[/bold]")
+      # to guarantee stock we set min_nodes to at least 1 for the test
+      test_min_nodes = max(1, min_nodes)
+      new_pool_name = generate_pool_name(current_accel)
+      new_pool = NodePoolConfig(new_pool_name, current_accel, min_nodes=test_min_nodes)
+      
+      all_pools = state.node_pools + [new_pool]
+      config = InfraConfig(
+        project=state.project,
+        zone=state.zone,
+        cluster_name=state.cluster_name,
+        node_pools=all_pools,
+      )
+      
+      update_succeeded = apply_update(config)
+      if update_succeeded:
+        successful_zone = z
+        break
+      else:
+        warning(f"Provisioning failed in {z}. Reverting cluster state...")
+        # revert
+        config.node_pools = state.node_pools
+        apply_update(config)
+
+    if update_succeeded:
+      if current_accel != accel_config:
+        # Downgrade successful
+        if not click.confirm(f"\nRequested hardware was unavailable. Successfully secured {current_accel.name} in {successful_zone}. Keep this hardware?"):
+           # revert
+           config.node_pools = state.node_pools
+           apply_update(config)
+           raise click.ClickException("Pool addition aborted by user.")
+      break
+
+    # try fallback
+    try:
+      current_accel = next(fallback_iterator)
+    except StopIteration:
+      banner("Pool Update Failed")
+      console.print("\nAll hardware limits exhausted across candidate zones.")
+      return
+
+    console.print(f"\n[bold yellow]Hardware severely constrained. Searching for fallback: {current_accel.name}[/bold yellow]")
 
   console.print()
-  if update_succeeded:
-    banner("Pool Added")
-  else:
-    banner("Pool Update Failed")
-    console.print()
-    console.print(
-      "You may re-run the command to retry, or use"
-      " [bold]keras-remote pool list[/bold] to check current state."
-    )
+  banner("Pool Added")
   console.print()
 
 
