@@ -60,7 +60,10 @@ html_theme_options = {
   "navigation_with_keys": False,
   "show_navbar_depth": 2,
 }
-html_static_path = []
+html_static_path = ["_static"]
+html_css_files = [
+  "custom.css",
+]
 
 # -- Options for EPUB output
 epub_show_urls = "footnote"
