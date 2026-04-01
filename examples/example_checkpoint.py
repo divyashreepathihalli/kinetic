@@ -5,13 +5,13 @@ os.environ["KERAS_BACKEND"] = "jax"
 
 import kinetic
 
+
 @kinetic.run(accelerator="cpu")
 def train_with_checkpoints():
   """Demo function showing Orbax checkpointing with Kinetic."""
-  import jax
   import jax.numpy as jnp
   import orbax.checkpoint as ocp
-  
+
   checkpoint_dir = os.environ.get("KINETIC_CHECKPOINT_DIR")
   print(f"--- Kinetic Checkpoint Dir: {checkpoint_dir} ---")
 
@@ -31,9 +31,7 @@ def train_with_checkpoints():
   # Orbax handles GCS paths transparently via etils.epath
   options = ocp.CheckpointManagerOptions(max_to_keep=2)
   mngr = ocp.CheckpointManager(
-    checkpoint_dir,
-    ocp.StandardCheckpointer(),
-    options=options
+    checkpoint_dir, ocp.StandardCheckpointer(), options=options
   )
 
   print("Saving checkpoint at step 0...")
@@ -44,7 +42,7 @@ def train_with_checkpoints():
   # 3. Restore to verify
   print("Restoring checkpoint from step 0...")
   restored_state = mngr.restore(0)
-  
+
   # Assert equality for verification
   assert jnp.allclose(restored_state["weights"], state["weights"])
   print("Checkpoint restored successfully and verified!")
