@@ -61,7 +61,7 @@ class JobContext:
 
   # Configuration modifiers
   spot: bool = False
-  checkpoint_dir: Optional[str] = None
+  output_dir: Optional[str] = None
 
   # Artifact paths (set during prepare phase)
   payload_path: Optional[str] = None
@@ -76,9 +76,9 @@ class JobContext:
     if self.working_dir is None:
       self.working_dir = _resolve_working_dir(self.func)
 
-    if not self.checkpoint_dir:
-      self.checkpoint_dir = f"gs://{self.bucket_name}/checkpoints/{self.job_id}"
-    self.env_vars["KINETIC_CHECKPOINT_DIR"] = self.checkpoint_dir
+    if not self.output_dir:
+      self.output_dir = f"gs://{self.bucket_name}/outputs/{self.job_id}"
+    self.env_vars["KINETIC_OUTPUT_DIR"] = self.output_dir
 
   @classmethod
   def from_params(
@@ -94,7 +94,7 @@ class JobContext:
     cluster_name: Optional[str] = None,
     volumes: Optional[dict] = None,
     spot: bool = False,
-    checkpoint_dir: Optional[str] = None,
+    output_dir: Optional[str] = None,
   ) -> "JobContext":
     """Factory method with default resolution for zone/project/cluster."""
     if not zone:
@@ -117,7 +117,7 @@ class JobContext:
       working_dir=_resolve_working_dir(func),
       volumes=volumes,
       spot=spot,
-      checkpoint_dir=checkpoint_dir or os.environ.get("KINETIC_CHECKPOINT_DIR"),
+      output_dir=output_dir or os.environ.get("KINETIC_OUTPUT_DIR"),
     )
 
 

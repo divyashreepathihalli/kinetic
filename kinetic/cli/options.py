@@ -51,7 +51,7 @@ def cleanup_options(f):
 def jobs_options(f):
   """Shared options for ``kinetic jobs`` subcommands.
 
-  Extends ``common_options`` with ``--namespace`` and `--checkpoint-dir`.
+  Extends ``common_options`` with ``--namespace`` and `--output-dir`.
   """
   f = common_options(f)
   f = click.option(
@@ -62,9 +62,9 @@ def jobs_options(f):
     help="Kubernetes namespace [env: KINETIC_NAMESPACE]",
   )(f)
   f = click.option(
-    "--checkpoint-dir",
-    envvar="KINETIC_CHECKPOINT_DIR",
+    "--output-dir",
+    envvar="KINETIC_OUTPUT_DIR",
     default=None,
-    help="Checkpoint directory [env: KINETIC_CHECKPOINT_DIR]",
+    help="Output directory [env: KINETIC_OUTPUT_DIR]",
   )(f)
   return f

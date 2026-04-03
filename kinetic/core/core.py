@@ -81,7 +81,7 @@ def _make_decorator(
   volumes,
   spot,
   sync,
-  checkpoint_dir,
+  output_dir,
 ):
   """Build a decorator that submits the wrapped function for remote execution.
 
@@ -120,7 +120,7 @@ def _make_decorator(
         cluster_name=resolved_cluster,
         volumes=volumes,
         spot=spot,
-        checkpoint_dir=checkpoint_dir,
+        output_dir=output_dir,
       )
 
       if resolved_backend == "pathways":
@@ -151,7 +151,7 @@ def run(
   namespace: str | None = None,
   volumes: dict[str, Data] | None = None,
   spot: bool = False,
-  checkpoint_dir: str | None = None,
+  output_dir: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
   """Execute function on remote TPU/GPU.
 
@@ -183,7 +183,7 @@ def run(
     volumes,
     spot,
     sync=True,
-    checkpoint_dir=checkpoint_dir,
+    output_dir=output_dir,
   )
 
 
@@ -198,7 +198,7 @@ def submit(
   namespace: str | None = None,
   volumes: dict[str, Data] | None = None,
   spot: bool = False,
-  checkpoint_dir: str | None = None,
+  output_dir: str | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., JobHandle]]:
   """Submit function for remote execution, returning a ``JobHandle``.
 
@@ -221,5 +221,5 @@ def submit(
     volumes,
     spot,
     sync=False,
-    checkpoint_dir=checkpoint_dir,
+    output_dir=output_dir,
   )

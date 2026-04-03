@@ -63,12 +63,12 @@ def show():
     "KINETIC_NAMESPACE" if namespace else "default (default)",
   )
 
-  # Checkpoint directory
-  checkpoint_dir = os.environ.get("KINETIC_CHECKPOINT_DIR")
+  # Output directory
+  output_dir = os.environ.get("KINETIC_OUTPUT_DIR")
   table.add_row(
-    "Checkpoint Dir",
-    checkpoint_dir or "(not set)",
-    "KINETIC_CHECKPOINT_DIR" if checkpoint_dir else "",
+    "Output Dir",
+    output_dir or "(not set)",
+    "KINETIC_OUTPUT_DIR" if output_dir else "",
   )
 
   # State directory
