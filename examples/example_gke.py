@@ -26,12 +26,12 @@ Setup (GPU cluster - for GPU examples):
 
 Supported accelerators:
     - cpu: CPU only (no GPU required)
-    - nvidia-tesla-t4, t4: NVIDIA T4
-    - nvidia-l4, l4: NVIDIA L4
-    - nvidia-tesla-v100, v100: NVIDIA V100
-    - nvidia-tesla-a100, a100: NVIDIA A100 (40GB)
-    - a100-80gb: NVIDIA A100 (80GB)
-    - nvidia-h100-80gb, h100: NVIDIA H100
+    - gpu-t4: NVIDIA T4
+    - gpu-l4: NVIDIA L4
+    - gpu-v100: NVIDIA V100
+    - gpu-a100: NVIDIA A100 (40GB)
+    - gpu-a100-80gb: NVIDIA A100 (80GB)
+    - gpu-h100: NVIDIA H100
 """
 
 import os
@@ -53,10 +53,10 @@ def simple_computation(x, y):
   return result
 
 
-# Example 2: Keras model training on CPU
-@kinetic.run(accelerator="v6e-2x4", spot=True)
-def train_simple_model_cpu():
-  """Train a simple Keras model on remote CPU."""
+# Example 2: Keras model training on TPU
+@kinetic.run(accelerator="tpu-v6e-2x4", spot=True)
+def train_simple_model_tpu():
+  """Train a simple Keras model on remote TPU."""
 
   # Create a simple model
   model = keras.Sequential(
@@ -74,7 +74,7 @@ def train_simple_model_cpu():
   y_train = np.random.randn(1000, 1)
 
   # Train the model
-  print("Training model on CPU...")
+  print("Training model on TPU...")
   history = model.fit(x_train, y_train, epochs=5, batch_size=32, verbose=1)
 
   print(f"Final loss: {history.history['loss'][-1]}")
@@ -82,7 +82,7 @@ def train_simple_model_cpu():
 
 
 # Example 3: GPU training (requires GPU node pool)
-@kinetic.run(accelerator="nvidia-tesla-t4")
+@kinetic.run(accelerator="gpu-t4")
 def train_model_gpu():
   """Train a Keras model on remote GPU. Requires T4 GPU node pool."""
   model = keras.Sequential(
@@ -119,7 +119,7 @@ def main():
   # Example 2: Model training on CPU
   print("\n--- Example 2: Keras Model Training (CPU) ---")
   print("Training a simple model on CPU...")
-  final_loss = train_simple_model_cpu()
+  final_loss = train_simple_model_tpu()
   print(f"Model trained. Final loss: {final_loss}")
 
   # Example 3: GPU training (requires GPU node pool)
