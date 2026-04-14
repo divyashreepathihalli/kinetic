@@ -14,7 +14,7 @@ By default, Kinetic provisions accelerator node pools with **scale-to-zero** cap
 - **Job Submission:** When you invoke a remote function (via the `@kinetic.run()` decorator), Kinetic creates a Kubernetes `Job` on your GKE cluster.
 - **Provisioning:** The GKE Cluster Autoscaler detects pending pods and spins up the required GPU/TPU virtual machines to support the job.
 - **Execution & Termination:** Once your workload terminates (either successfully or due to an exception), the container exits and the pod goes away.
-- **Scaling Down:** After the pod terminates, if no new jobs are submitted within the GKE idle window (typically around 10 minutes by default in GCP), the Cluster Autoscaler automatically shuts down the underlying VM instances, returning your compute consumption to zero.
+- **Scaling Down:** After the pod terminates, if no new jobs are submitted within the GKE idle window (typically around 10 minutes by default in GCP), the Cluster Autoscaler automatically shuts down the underlying VM instances, returning your accelerator compute consumption to zero.
 
 > [!IMPORTANT]
 > Because the cluster control plane runs continuously, you will still incur the baseline cost of running a GKE cluster (~$0.10/hour per cluster, unless covered by your monthly free tier). 
