@@ -32,7 +32,7 @@ final_loss = train_model()
   outputs and resumable checkpoints under `KINETIC_OUTPUT_DIR`.
 
 ## Documentation
-Take a look at the detailed documentation here https://kinetic.readthedocs.io/en/latest/
+Comprehensive documentation is available at: https://kinetic.readthedocs.io
 
 ## Install
 
