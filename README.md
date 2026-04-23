@@ -31,6 +31,9 @@ final_loss = train_model()
   to ship local files (or stream from GCS) into the job. Write durable
   outputs and resumable checkpoints under `KINETIC_OUTPUT_DIR`.
 
+## Documentation
+Comprehensive documentation is available at: https://kinetic.readthedocs.io
+
 ## Install
 
 ```bash
