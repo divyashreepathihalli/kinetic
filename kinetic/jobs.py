@@ -6,7 +6,9 @@ for cross-session reattachment and `list_jobs()` for discovery.
 """
 
 import contextlib
+import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from typing import Any
@@ -26,6 +28,12 @@ from kinetic.constants import (
   get_required_project,
 )
 from kinetic.credentials import ensure_credentials
+from kinetic.debug import (
+  DEBUGPY_PORT,
+  print_attach_instructions,
+  start_port_forward,
+  wait_for_debug_server,
+)
 from kinetic.job_status import JobStatus  # re-export
 from kinetic.utils import storage
 
@@ -89,6 +97,9 @@ class JobHandle:
   group_kind: str | None = None
   group_index: int | None = None
 
+  # Debug mode — when True, the pod runs a debugpy server.
+  debug: bool = False
+
   # ------------------------------------------------------------------
   # Serialisation helpers
   # ------------------------------------------------------------------
@@ -116,6 +127,7 @@ class JobHandle:
       func_name=ctx.func.__name__,
       display_name=ctx.display_name,
       created_at=_utcnow_iso(),
+      debug=ctx.debug,
     )
 
   @classmethod
@@ -265,13 +277,56 @@ class JobHandle:
     """Return the last n log lines from the active pod."""
     return self._get_logs(tail_lines=n)
 
+  def debug_attach(
+    self,
+    local_port: int = DEBUGPY_PORT,
+    working_dir: str | None = None,
+  ) -> subprocess.Popen:
+    """Wait for debugpy, start port-forward, and print VS Code config.
+
+    Returns the port-forward subprocess so the caller can manage its
+    lifecycle (e.g. terminate it after ``result()`` completes).
+
+    Args:
+      local_port: Local port to forward debugpy traffic to.
+      working_dir: Local working directory for VS Code path mappings.
+          If None, a placeholder is used.
+
+    Returns:
+      The ``subprocess.Popen`` handle for the kubectl port-forward
+      process. The caller should call
+      ``kinetic.debug.cleanup_port_forward(proc)`` when done.
+    """
+    self._ensure_credentials()
+
+    # Wait for pod Running + debugpy ready sentinel file
+    # before starting port-forward
+    wait_for_debug_server(self)
+
+    # Start kubectl port-forward
+    pod_name = self._get_pod_name()
+    if pod_name is None:
+      raise RuntimeError(
+        f"No pod found for job {self.job_id} — "
+        "it may have been deleted or has not started yet."
+      )
+    pf_proc = start_port_forward(
+      pod_name, self.namespace, local_port, DEBUGPY_PORT
+    )
+
+    # Print VS Code attach config
+    print_attach_instructions(local_port, working_dir)
+
+    return pf_proc
+
   def result(
     self,
     timeout: float | None = None,
-    cleanup: bool = True,
+    cleanup: bool | None = None,
     cleanup_timeout: float = 180,
     cleanup_poll_interval: float = 2,
-    stream_logs: bool = False,
+    stream_logs: bool | None = None,
+    on_status_change: Callable[[JobStatus], None] | None = None,
   ) -> Any:
     """Wait for the job result and return it or re-raise the user exception.
 
@@ -279,15 +334,21 @@ class JobHandle:
       timeout: Maximum seconds to wait.  `None` means wait forever.
         If reached, `TimeoutError` is raised but the job keeps
         running and the handle remains valid.
-      cleanup: When *True* (default), delete the k8s resource and
-        GCS artifacts after a result payload is successfully
-        downloaded.  Matches `run()` semantics.
+      cleanup: When *True*, delete the k8s resource and GCS artifacts
+        after a result payload is successfully downloaded.  Defaults
+        to *True* for normal jobs and *False* for debug jobs.
       cleanup_timeout: Maximum seconds to wait for the k8s resource
         deletion to be confirmed.
       cleanup_poll_interval: Seconds between deletion-confirmation
         polls.
       stream_logs: When *True*, stream live pod logs to the terminal
-        while waiting for the job to complete.
+        while waiting for the job to complete.  Defaults to *False*
+        for debug jobs to avoid Rich panel conflicts.
+      on_status_change: Optional callback invoked with the new
+        `JobStatus` each time the polled status differs from the
+        previous one, including the first observation and the final
+        terminal status.  Exceptions raised by the callback are
+        logged and swallowed so they never break result collection.
 
     Returns:
       The function's return value.
@@ -297,8 +358,14 @@ class JobHandle:
       RuntimeError: If the job failed without uploading a result.
       Exception: Re-raised from the remote function on user failure.
     """
+    if cleanup is None:
+      cleanup = not self.debug
+    if stream_logs is None:
+      stream_logs = False
+
     deadline = None if timeout is None else time.monotonic() + timeout
     observed_status = None
+    previous_status = None
     streamer_ctx = None
 
     if stream_logs:
@@ -308,6 +375,17 @@ class JobHandle:
     with streamer_ctx if streamer_ctx is not None else contextlib.nullcontext():
       while True:
         observed_status = self.status()
+        if on_status_change is not None and observed_status != previous_status:
+          try:
+            on_status_change(observed_status)
+          except Exception as exc:
+            logging.exception(
+              "on_status_change callback raised for job %s at status %s: %s",
+              self.job_id,
+              observed_status.value,
+              exc,
+            )
+        previous_status = observed_status
         if observed_status in _TERMINAL_STATUSES:
           break
         if deadline is not None and time.monotonic() >= deadline:
