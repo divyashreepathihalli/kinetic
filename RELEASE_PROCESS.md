@@ -1,4 +1,4 @@
-# Kinetic Release Process
+# Kinetic Release Process - To be used only by Kinetic maintainers.
 
 Follow these steps to release a new version of Kinetic:
 
