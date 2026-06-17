@@ -8,4 +8,4 @@ Follow these steps to release a new version of Kinetic:
    - Example branch name: `r0.0.5`
 3. **Create a New Release:** Go to [https://github.com/keras-team/kinetic/releases/new](https://github.com/keras-team/kinetic/releases/new) and create a new release.
    <img width="1336" height="1496" alt="image" src="https://github.com/user-attachments/assets/e0c1aaa7-62f8-4893-ba0b-2090fa54b586" />
-5. **Publish to PyPI:** Cutting the release will automatically trigger the release to PyPI.
+4. **Publish to PyPI:** Cutting the release will automatically trigger the release to PyPI.
